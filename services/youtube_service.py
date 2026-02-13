@@ -36,6 +36,11 @@ def _get_cookie_path() -> Optional[str]:
     if not cookies_content:
         return None
 
+    # Validate content structure (reject JSON/dict/list formats)
+    if cookies_content.startswith("{") or cookies_content.startswith("["):
+        print("⚠️ YOUTUBE_COOKIES env var looks like JSON — ignoring (expected Netscape format)")
+        return None
+
     try:
         # Ensure Netscape header is present (yt-dlp requires it)
         if not cookies_content.startswith("# Netscape HTTP Cookie File") and \
@@ -103,35 +108,54 @@ def _run_yt_dlp_extract(video_id: str, quality: str = "high") -> Optional[dict]:
         "skip_download": True,
     }
 
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            url = f"https://www.youtube.com/watch?v={video_id}"
-            info = ydl.extract_info(url, download=False)
+    attempts = 2 if opts.get("cookiefile") else 1
 
-            if not info:
-                return None
+    for attempt in range(attempts):
+        # On retry (attempt 1), remove cookiefile
+        if attempt > 0:
+            opts.pop("cookiefile", None)
 
-            stream_url = info.get("url")
-            if not stream_url:
-                # Try formats list
-                formats = info.get("formats", [])
-                audio_formats = [f for f in formats if f.get("acodec") != "none" and f.get("vcodec") in ("none", None)]
-                if audio_formats:
-                    stream_url = audio_formats[-1].get("url")
-                elif formats:
-                    stream_url = formats[-1].get("url")
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                url = f"https://www.youtube.com/watch?v={video_id}"
+                info = ydl.extract_info(url, download=False)
 
-            return {
-                "stream_url": stream_url,
-                "title": info.get("title", ""),
-                "artist": info.get("uploader", info.get("channel", "Unknown")),
-                "duration": info.get("duration", 0),
-                "thumbnail": info.get("thumbnail", ""),
-                "view_count": info.get("view_count", 0),
-            }
-    except Exception as e:
-        print(f"❌ yt-dlp extract error for {video_id}: {e}")
-        return None
+                if not info:
+                    if attempt < attempts - 1: continue
+                    return None
+
+                stream_url = info.get("url")
+                if not stream_url:
+                    # Try formats list
+                    formats = info.get("formats", [])
+                    audio_formats = [f for f in formats if f.get("acodec") != "none" and f.get("vcodec") in ("none", None)]
+                    if audio_formats:
+                        stream_url = audio_formats[-1].get("url")
+                    elif formats:
+                        stream_url = formats[-1].get("url")
+
+                return {
+                    "stream_url": stream_url,
+                    "title": info.get("title", ""),
+                    "artist": info.get("uploader", info.get("channel", "Unknown")),
+                    "duration": info.get("duration", 0),
+                    "thumbnail": info.get("thumbnail", ""),
+                    "view_count": info.get("view_count", 0),
+                }
+        except Exception as e:
+            err_msg = str(e).lower()
+            # If cookie/format error, retry without cookies
+            is_cookie_error = "cookie" in err_msg or "netscape" in err_msg or "format" in err_msg
+            
+            if attempt < attempts - 1 and is_cookie_error:
+                print(f"⚠️ Extract error for {video_id}: {e}. Retrying without cookies.")
+                # Disable global cookies to prevent future errors
+                global _cookie_file_path
+                _cookie_file_path = None
+                continue
+            
+            print(f"❌ yt-dlp extract error for {video_id}: {e}")
+            return None
 
 
 def _run_yt_dlp_search(query: str, limit: int = 10) -> List[dict]:
@@ -151,75 +175,90 @@ def _run_yt_dlp_search(query: str, limit: int = 10) -> List[dict]:
         "default_search": f"ytsearch{fetch_limit}",
     }
 
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            result = ydl.extract_info(f"ytsearch{fetch_limit}:{clean_query}", download=False)
-            entries = result.get("entries", []) if result else []
+    attempts = 2 if opts.get("cookiefile") else 1
 
-            songs = []
-            for entry in entries:
-                if not entry:
-                    continue
+    for attempt in range(attempts):
+        if attempt > 0:
+            opts.pop("cookiefile", None)
 
-                video_id = entry.get("id", "")
-                title = entry.get("title", "")
-                uploader = entry.get("uploader", entry.get("channel", "Unknown"))
-                duration = entry.get("duration") or 0
-                thumbnail = entry.get("thumbnail", entry.get("thumbnails", [{}])[0].get("url", "") if entry.get("thumbnails") else "")
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                result = ydl.extract_info(f"ytsearch{fetch_limit}:{clean_query}", download=False)
+                entries = result.get("entries", []) if result else []
 
-                if not video_id or not title:
-                    continue
-
-                # Block inappropriate / non-music content
-                if _is_blocked_content(title):
-                    continue
-
-                # Skip songs longer than 10 minutes (likely compilations/albums)
-                if duration and int(duration) > 600:
-                    continue
-
-                is_short_query = any(w in clean_query.lower() for w in ["short", "intro", "interlude", "skit"])
-
-                if not is_short_query and duration:
-                    dur_sec = int(duration)
-                    
-                    # 1. Hard block very short content (< 60s) unless searching for it
-                    if dur_sec < 60:
+                songs = []
+                for entry in entries:
+                    if not entry:
                         continue
 
-                    # 2. Block short content (60s - 120s) if title looks like a clip/scene
-                    # Addresses 1:50 movie clips
-                    if dur_sec < 120 and any(w in title.lower() for w in ["scene", "clip", "preview", "snippet", "teaser", "movie", "film", "trailer"]):
+                    video_id = entry.get("id", "")
+                    title = entry.get("title", "")
+                    uploader = entry.get("uploader", entry.get("channel", "Unknown"))
+                    duration = entry.get("duration") or 0
+                    thumbnail = entry.get("thumbnail", entry.get("thumbnails", [{}])[0].get("url", "") if entry.get("thumbnails") else "")
+
+                    if not video_id or not title:
                         continue
-                    
-                    # 3. Block generic short content (< 90s) to be safe?
-                    # Many punk/pop songs are > 2m. Let's be safe with 90s.
-                    if dur_sec < 90:
+
+                    # Block inappropriate / non-music content
+                    if _is_blocked_content(title):
                         continue
 
-                # Generate thumbnail if missing
-                if not thumbnail:
-                    thumbnail = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+                    # Skip songs longer than 10 minutes (likely compilations/albums)
+                    if duration and int(duration) > 600:
+                        continue
 
-                # Clean up artist name
-                artist = _clean_artist_name(uploader, title)
+                    is_short_query = any(w in clean_query.lower() for w in ["short", "intro", "interlude", "skit"])
 
-                songs.append({
-                    "id": video_id,
-                    "title": _clean_title(title),
-                    "artist": artist,
-                    "thumbnailUrl": thumbnail,
-                    "audioUrl": "",
-                    "durationSeconds": int(duration) if duration else 0,
-                })
+                    if not is_short_query and duration:
+                        dur_sec = int(duration)
+                        
+                        # 1. Hard block very short content (< 60s) unless searching for it
+                        if dur_sec < 60:
+                            continue
 
-                if len(songs) >= limit:
-                    break
+                        # 2. Block short content (60s - 120s) if title looks like a clip/scene
+                        # Addresses 1:50 movie clips
+                        if dur_sec < 120 and any(w in title.lower() for w in ["scene", "clip", "preview", "snippet", "teaser", "movie", "film", "trailer"]):
+                            continue
+                        
+                        # 3. Block generic short content (< 90s) to be safe?
+                        # Many punk/pop songs are > 2m. Let's be safe with 90s.
+                        if dur_sec < 90:
+                            continue
 
-            return songs
-    except Exception as e:
-        print(f"❌ yt-dlp search error: {e}")
-        return []
+                    # Generate thumbnail if missing
+                    if not thumbnail:
+                        thumbnail = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+
+                    # Clean up artist name
+                    artist = _clean_artist_name(uploader, title)
+
+                    songs.append({
+                        "id": video_id,
+                        "title": _clean_title(title),
+                        "artist": artist,
+                        "thumbnailUrl": thumbnail,
+                        "audioUrl": "",
+                        "durationSeconds": int(duration) if duration else 0,
+                    })
+
+                    if len(songs) >= limit:
+                        break
+
+                return songs
+        except Exception as e:
+            err_msg = str(e).lower()
+            is_cookie_error = "cookie" in err_msg or "netscape" in err_msg
+            
+            if attempt < attempts - 1 and is_cookie_error:
+                print(f"⚠️ Search error: {e}. Retrying without cookies.")
+                global _cookie_file_path
+                _cookie_file_path = None
+                continue
+                
+            print(f"❌ yt-dlp search error: {e}")
+            return []
 
 
 # ==================== CONTENT FILTER ====================
