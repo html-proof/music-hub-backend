@@ -1,6 +1,6 @@
-
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../models/models.dart';
 
@@ -15,8 +15,11 @@ class SearchProvider extends ChangeNotifier {
   String? _error;
   String _currentQuery = '';
   Timer? _debounce;
+  static const String _historyKey = 'search_history';
 
-  SearchProvider(this._apiService);
+  SearchProvider(this._apiService) {
+    _loadHistory();
+  }
 
   List<Song> get results => _results;
   List<String> get suggestions => _suggestions;
@@ -25,6 +28,25 @@ class SearchProvider extends ChangeNotifier {
   bool get isSuggestionsLoading => _isSuggestionsLoading;
   String? get error => _error;
   String get currentQuery => _currentQuery;
+
+  Future<void> _loadHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _searchHistory = prefs.getStringList(_historyKey) ?? [];
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading search history: $e');
+    }
+  }
+
+  Future<void> _saveHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_historyKey, _searchHistory);
+    } catch (e) {
+      debugPrint('Error saving search history: $e');
+    }
+  }
 
   void onQueryChanged(String query) {
     _currentQuery = query;
@@ -88,15 +110,18 @@ class SearchProvider extends ChangeNotifier {
     if (_searchHistory.length > 15) {
       _searchHistory = _searchHistory.sublist(0, 15);
     }
+    _saveHistory();
   }
 
   void removeFromHistory(String query) {
     _searchHistory.remove(query);
+    _saveHistory();
     notifyListeners();
   }
 
   void clearHistory() {
     _searchHistory.clear();
+    _saveHistory();
     notifyListeners();
   }
 
