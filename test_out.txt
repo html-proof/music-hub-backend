@@ -1,0 +1,15 @@
+
+--- STDERR ---
+Traceback (most recent call last):
+  File "e:\Backend\test_all.py", line 113, in <module>
+    test("GET", "/auto-playlist/test_id", "Get auto-playlist", expect_code=404)
+    ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "e:\Backend\test_all.py", line 45, in test
+    print(f"\u274c {name} FAILED: Got {r.status_code}, expected {expect_code}")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u274c' in position 0: character maps to <undefined>
+
+--- EXIT CODE: 1 ---

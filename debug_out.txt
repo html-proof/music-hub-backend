@@ -1,0 +1,2 @@
+Status: 500
+Body: {"error":"Failed to get playlist: Your default credentials were not found. To set up Application Default Credentials, see https://cloud.google.com/docs/authentication/external/set-up-adc for more information.","status_code":500}

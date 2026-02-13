@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "528866748996",
+    "firebase_url": "https://sample-music-65323-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "sample-music-65323",
+    "storage_bucket": "sample-music-65323.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:528866748996:android:d1ae71958476c474d82a11",
+        "android_client_info": {
+          "package_name": "com.musichub.music_hub"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "528866748996-gh1icgbbbr13rj2eqjugs36dadacgqv9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDj98Xeq5kV4JGFNZUhNVsMSglNjyOKPhQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "528866748996-gh1icgbbbr13rj2eqjugs36dadacgqv9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "528866748996-tm161h99tolamlueksnd3fq1k7pnb19o.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.musichub.musicHub"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

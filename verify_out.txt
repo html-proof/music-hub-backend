@@ -1,0 +1,2 @@
+Status: 500
+Body: {"error":"Failed to get playlist: The default Firebase app does not exist. Make sure to initialize the SDK by calling initialize_app().","status_code":500}
