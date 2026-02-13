@@ -115,6 +115,10 @@ def _run_yt_dlp_search(query: str, limit: int = 10) -> List[dict]:
                 if _is_blocked_content(title):
                     continue
 
+                # Skip songs longer than 10 minutes (likely compilations/albums)
+                if duration and int(duration) > 600:
+                    continue
+
                 # Generate thumbnail if missing
                 if not thumbnail:
                     thumbnail = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
