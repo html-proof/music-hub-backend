@@ -15,7 +15,7 @@ class KeywordExtractor:
         "english": {
             "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
             "of", "with", "by", "from", "song", "music", "video", "audio", "official",
-            "lyrics", "full", "new", "latest", "best", "top","epic","shorts","remix","cover","remix",""
+            "lyrics", "full", "new", "latest", "best", "top","epic","shorts","remix","cover","remix","Sun nxt","prime""
         },
         "hindi": {
             "ka", "ke", "ki", "se", "ne", "ko", "mein", "hai", "tha", "thi", "the",
