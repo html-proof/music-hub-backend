@@ -4,8 +4,10 @@ Handles searching YouTube for songs and resolving audio-only stream URLs.
 """
 
 import asyncio
+import os
 import time
 import re
+import tempfile
 from typing import Optional, List, Dict
 from cachetools import TTLCache
 
@@ -18,6 +20,52 @@ _search_cache: TTLCache = TTLCache(maxsize=500, ttl=600)
 
 # Hit/miss counters
 _cache_stats = {"search_hits": 0, "search_misses": 0, "stream_hits": 0, "stream_misses": 0}
+
+# Cookie file path (resolved once)
+_cookie_file_path: Optional[str] = None
+
+
+def _get_cookie_path() -> Optional[str]:
+    """Get path to YouTube cookies file. Reads from YOUTUBE_COOKIES env var."""
+    global _cookie_file_path
+
+    if _cookie_file_path and os.path.exists(_cookie_file_path):
+        return _cookie_file_path
+
+    cookies_content = os.environ.get("YOUTUBE_COOKIES", "").strip()
+    if not cookies_content:
+        return None
+
+    try:
+        # Write cookies to a temp file
+        cookie_path = os.path.join(tempfile.gettempdir(), "yt_cookies.txt")
+        with open(cookie_path, "w", encoding="utf-8") as f:
+            f.write(cookies_content)
+        _cookie_file_path = cookie_path
+        print(f"✅ YouTube cookies loaded ({len(cookies_content)} bytes)")
+        return cookie_path
+    except Exception as e:
+        print(f"❌ Error writing cookie file: {e}")
+        return None
+
+
+def _base_opts() -> dict:
+    """Common yt-dlp options with cookie + header support."""
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    }
+
+    cookie_path = _get_cookie_path()
+    if cookie_path:
+        opts["cookiefile"] = cookie_path
+
+    return opts
 
 
 def _run_yt_dlp_extract(video_id: str, quality: str = "high") -> Optional[dict]:
@@ -35,10 +83,8 @@ def _run_yt_dlp_extract(video_id: str, quality: str = "high") -> Optional[dict]:
     fmt = quality_formats.get(quality, quality_formats["high"])
 
     opts = {
+        **_base_opts(),
         "format": fmt,
-        "noplaylist": True,
-        "quiet": True,
-        "no_warnings": True,
         "extract_flat": False,
         "skip_download": True,
     }
@@ -85,8 +131,7 @@ def _run_yt_dlp_search(query: str, limit: int = 10) -> List[dict]:
     fetch_limit = min(limit + 10, 30)
 
     opts = {
-        "quiet": True,
-        "no_warnings": True,
+        **_base_opts(),
         "extract_flat": True,
         "skip_download": True,
         "default_search": f"ytsearch{fetch_limit}",
