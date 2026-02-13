@@ -7,12 +7,23 @@ import '../services/api_service.dart';
 
 enum RepeatMode { off, all, one }
 
+/// Cached stream URL with timestamp for TTL expiry
+class _CachedUrl {
+  final String url;
+  final DateTime cachedAt;
+  _CachedUrl(this.url) : cachedAt = DateTime.now();
+
+  /// URLs expire after 30 minutes (YouTube URLs typically last ~6 hours,
+  /// but 30 min is safe and avoids edge-case failures).
+  bool get isExpired => DateTime.now().difference(cachedAt).inMinutes > 30;
+}
+
 class PlayerProvider extends ChangeNotifier {
   final ApiService _apiService;
   final AudioPlayer _player = AudioPlayer();
   
-  // Pre-resolved stream URLs — the key to instant playback
-  final Map<String, String> _streamUrlCache = {};
+  // Pre-resolved stream URLs with TTL — the key to instant playback
+  final Map<String, _CachedUrl> _streamUrlCache = {};
   
   List<Song> _queue = [];
   int _currentIndex = -1;
@@ -26,6 +37,12 @@ class PlayerProvider extends ChangeNotifier {
   String? _currentPlayId;
   String? _slowNetworkMessage;
   int _loadingGeneration = 0;  // Cancels stale loads on rapid taps
+
+  // Concatenating audio source for queue-based notification controls
+  final ConcatenatingAudioSource _playlist = ConcatenatingAudioSource(
+    children: [],
+    useLazyPreparation: true,
+  );
 
   PlayerProvider(this._apiService) {
     _initPlayer();
@@ -66,6 +83,33 @@ class PlayerProvider extends ChangeNotifier {
       _duration = dur ?? Duration.zero;
       notifyListeners();
     });
+
+    // Listen for notification-driven track changes (prev/next from lock screen)
+    _player.currentIndexStream.listen((index) {
+      if (index != null && index != _currentIndex && index < _queue.length) {
+        _onNotificationTrackChange(index);
+      }
+    });
+  }
+
+  /// Called when the user taps prev/next from the notification/lock screen
+  void _onNotificationTrackChange(int newIndex) {
+    _trackSkipIfNeeded();
+    _currentIndex = newIndex;
+    _currentSong = _queue[newIndex];
+    notifyListeners();
+
+    // Track the play
+    _apiService.trackPlay(
+      videoId: _currentSong!.id,
+      title: _currentSong!.title,
+      artist: _currentSong!.artist,
+      duration: _currentSong!.durationSeconds,
+    ).then((playId) {
+      _currentPlayId = playId;
+    });
+
+    _prefetchUpcoming();
   }
 
   void _onSongCompleted() {
@@ -110,7 +154,7 @@ class PlayerProvider extends ChangeNotifier {
     try {
       final data = await _apiService.getStreamUrl(videoId);
       if (data != null && data['stream_url'] != null) {
-        _streamUrlCache[videoId] = data['stream_url'];
+        _streamUrlCache[videoId] = _CachedUrl(data['stream_url']);
       }
     } catch (_) {
       // Silent — prefetch failure is non-critical
@@ -138,13 +182,17 @@ class PlayerProvider extends ChangeNotifier {
       _currentIndex = queueIdx;
     }
 
-    // Check local cache first — instant playback if cached
-    final cachedUrl = _streamUrlCache[song.id];
-    if (cachedUrl != null) {
+    // Check local cache first — instant playback if cached & not expired
+    final cached = _streamUrlCache[song.id];
+    if (cached != null && !cached.isExpired) {
       _isLoading = false;
       notifyListeners();
-      await _startPlayback(song, cachedUrl);
+      await _startPlayback(song, cached.url);
       return;
+    }
+    // Remove expired entry
+    if (cached != null && cached.isExpired) {
+      _streamUrlCache.remove(song.id);
     }
 
     // Fetch path — show loading + 10s timeout
@@ -167,7 +215,7 @@ class PlayerProvider extends ChangeNotifier {
       if (_loadingGeneration != thisGeneration) return;
 
       if (data != null && data['stream_url'] != null) {
-        _streamUrlCache[song.id] = data['stream_url'];
+        _streamUrlCache[song.id] = _CachedUrl(data['stream_url']);
         _slowNetworkMessage = null;
         _isLoading = false;
         notifyListeners();
@@ -227,12 +275,12 @@ class PlayerProvider extends ChangeNotifier {
       _prefetchUpcoming();
     } catch (e) {
       debugPrint("Error starting playback: $e");
-      // URL might be expired — clear cache and retry with fresh URL
+      // URL expired (403) — clear local cache and force-refresh from backend
       _streamUrlCache.remove(song.id);
       try {
-        final data = await _apiService.getStreamUrl(song.id);
+        final data = await _apiService.getStreamUrl(song.id, forceRefresh: true);
         if (data != null && data['stream_url'] != null) {
-          _streamUrlCache[song.id] = data['stream_url'];
+          _streamUrlCache[song.id] = _CachedUrl(data['stream_url']);
           final retrySource = AudioSource.uri(
             Uri.parse(data['stream_url']),
             tag: MediaItem(
@@ -266,7 +314,7 @@ class PlayerProvider extends ChangeNotifier {
   Future<void> addToQueue(Song song) async {
     _queue.add(song);
     // Prefetch the added song
-    if (!_streamUrlCache.containsKey(song.id)) {
+    if (!_streamUrlCache.containsKey(song.id) || _streamUrlCache[song.id]!.isExpired) {
       _resolveAndCache(song.id);
     }
     notifyListeners();
@@ -279,7 +327,7 @@ class PlayerProvider extends ChangeNotifier {
       _queue.add(song);
     }
     // Prefetch immediately
-    if (!_streamUrlCache.containsKey(song.id)) {
+    if (!_streamUrlCache.containsKey(song.id) || _streamUrlCache[song.id]!.isExpired) {
       _resolveAndCache(song.id);
     }
     notifyListeners();
@@ -371,9 +419,23 @@ class PlayerProvider extends ChangeNotifier {
       }
     }
   }
+
+  /// Stop playback and clear the notification completely
+  Future<void> stopAndClear() async {
+    await _player.stop();
+    _currentSong = null;
+    _currentIndex = -1;
+    _queue.clear();
+    _isPlaying = false;
+    _position = Duration.zero;
+    _duration = Duration.zero;
+    _currentPlayId = null;
+    notifyListeners();
+  }
   
   @override
   void dispose() {
+    _player.stop();
     _player.dispose();
     super.dispose();
   }

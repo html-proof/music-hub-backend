@@ -30,9 +30,10 @@ async def search_post(q: str = Query(..., description="Search query")):
 async def play_get(
     id: str = Query(..., description="YouTube video ID"),
     quality: str = Query("high", description="Audio quality"),
+    force_refresh: bool = Query(False, description="Bypass cache and fetch fresh URL"),
 ):
     """Get audio stream URL for a video."""
-    result = await get_stream_url(id, quality=quality)
+    result = await get_stream_url(id, quality=quality, force_refresh=force_refresh)
 
     if not result or not result.get("stream_url"):
         return {"success": False, "message": "Could not resolve stream URL"}

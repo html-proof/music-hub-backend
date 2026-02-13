@@ -25,9 +25,12 @@ void main() async {
   await JustAudioBackground.init(
     androidNotificationChannelId: 'com.musichub.audio',
     androidNotificationChannelName: 'Music Hub Playback',
-    androidNotificationOngoing: true,
+    androidNotificationOngoing: false,
     androidShowNotificationBadge: true,
-    androidStopForegroundOnPause: false,
+    androidStopForegroundOnPause: true,
+    androidNotificationClickStartsActivity: true,
+    // Show prev, play/pause, next as compact actions in collapsed notification
+    notificationColor: const Color(0xFF7C3AED),
   );
 
   await Firebase.initializeApp(
@@ -55,8 +58,36 @@ void main() async {
   );
 }
 
-class MusicHubApp extends StatelessWidget {
+class MusicHubApp extends StatefulWidget {
   const MusicHubApp({super.key});
+
+  @override
+  State<MusicHubApp> createState() => _MusicHubAppState();
+}
+
+class _MusicHubAppState extends State<MusicHubApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      // App is being closed — stop playback and clear notification
+      try {
+        final player = Provider.of<PlayerProvider>(context, listen: false);
+        player.stopAndClear();
+      } catch (_) {}
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

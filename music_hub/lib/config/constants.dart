@@ -1,7 +1,7 @@
 
 class AppConstants {
   static const String appName = 'Music Hub';
-  static const String apiBaseUrl = 'https://web-production-11764.up.railway.app';
+  static const String apiBaseUrl = 'https://web-production-11764.up.railway.app'; // Railway production
   
   // Storage Keys
   static const String tokenKey = 'auth_token';

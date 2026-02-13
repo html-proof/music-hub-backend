@@ -319,13 +319,19 @@ async def search_songs(query: str, limit: int = 10) -> List[dict]:
     return results
 
 
-async def get_stream_url(video_id: str, quality: str = "high") -> Optional[dict]:
-    """Get audio stream URL for a YouTube video."""
+async def get_stream_url(video_id: str, quality: str = "high", force_refresh: bool = False) -> Optional[dict]:
+    """Get audio stream URL for a YouTube video.
+    If force_refresh is True, bypass cache and fetch a fresh URL from YouTube."""
     cache_key = f"stream:{video_id}:{quality}"
-    if cache_key in _url_cache:
+
+    if not force_refresh and cache_key in _url_cache:
         _cache_stats["stream_hits"] += 1
         print(f"🔥 Stream cache HIT: {video_id}")
         return _url_cache[cache_key]
+
+    if force_refresh and cache_key in _url_cache:
+        del _url_cache[cache_key]
+        print(f"🔄 Stream cache FORCE REFRESH: {video_id}")
 
     _cache_stats["stream_misses"] += 1
     loop = asyncio.get_event_loop()

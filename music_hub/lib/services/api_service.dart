@@ -63,10 +63,11 @@ class ApiService {
     return [];
   }
 
-  Future<Map<String, dynamic>?> getStreamUrl(String videoId, {String quality = 'high'}) async {
+  Future<Map<String, dynamic>?> getStreamUrl(String videoId, {String quality = 'high', bool forceRefresh = false}) async {
     final response = await _dio.get('/music/play', queryParameters: {
       'id': videoId,
       'quality': quality,
+      if (forceRefresh) 'force_refresh': true,
     });
     if (response.statusCode == 200 && response.data['success'] == true) {
       return response.data['data'];
