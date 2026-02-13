@@ -7,7 +7,7 @@ python-multipart==0.0.6
 firebase-admin==6.4.0
 
 # YouTube Audio Extraction
-yt-dlp==2024.1.7
+yt-dlp>=2024.3.10
 
 # Async HTTP
 aiohttp==3.9.1
