@@ -87,7 +87,7 @@ def _run_yt_dlp_extract(video_id: str, quality: str = "high") -> Optional[dict]:
     import yt_dlp
 
     quality_formats = {
-        "high": "bestaudio[ext=m4a]/bestaudio/best",
+        "high": "bestaudio/best",
         "medium": "bestaudio[abr<=128]/bestaudio/best",
         "low": "bestaudio[abr<=64]/worstaudio/best",
         "48k": "bestaudio[abr<=48]/worstaudio/best",
