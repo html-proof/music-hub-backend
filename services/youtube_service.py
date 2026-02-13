@@ -21,56 +21,12 @@ _search_cache: TTLCache = TTLCache(maxsize=500, ttl=600)
 # Hit/miss counters
 _cache_stats = {"search_hits": 0, "search_misses": 0, "stream_hits": 0, "stream_misses": 0}
 
-# Cookie file path (resolved once)
-_cookie_file_path: Optional[str] = None
 
-
-def _get_cookie_path() -> Optional[str]:
-    """Get path to YouTube cookies file. Reads from YOUTUBE_COOKIES env var."""
-    global _cookie_file_path
-
-    if _cookie_file_path and os.path.exists(_cookie_file_path):
-        return _cookie_file_path
-
-    cookies_content = os.environ.get("YOUTUBE_COOKIES", "").strip()
-    if not cookies_content:
-        return None
-
-    # Validate content structure (reject JSON/dict/list formats)
-    if cookies_content.startswith("{") or cookies_content.startswith("["):
-        print("⚠️ YOUTUBE_COOKIES env var looks like JSON — ignoring (expected Netscape format)")
-        return None
-
-    try:
-        # Ensure Netscape header is present (yt-dlp requires it)
-        if not cookies_content.startswith("# Netscape HTTP Cookie File") and \
-           not cookies_content.startswith("# HTTP Cookie File"):
-            cookies_content = "# Netscape HTTP Cookie File\n# This file is generated automatically.\n\n" + cookies_content
-
-        # Basic validation — must have at least one tab-separated cookie line
-        has_cookie = any(
-            line.strip() and not line.startswith("#") and "\t" in line
-            for line in cookies_content.split("\n")
-        )
-        if not has_cookie:
-            print("⚠️ YOUTUBE_COOKIES env var set but contains no valid cookie lines — ignoring")
-            return None
-
-        # Write cookies to a temp file
-        cookie_path = os.path.join(tempfile.gettempdir(), "yt_cookies.txt")
-        with open(cookie_path, "w", encoding="utf-8") as f:
-            f.write(cookies_content)
-        _cookie_file_path = cookie_path
-        print(f"✅ YouTube cookies loaded ({len(cookies_content)} bytes)")
-        return cookie_path
-    except Exception as e:
-        print(f"❌ Error writing cookie file: {e}")
-        return None
 
 
 def _base_opts() -> dict:
-    """Common yt-dlp options with cookie + header support."""
-    opts = {
+    """Common yt-dlp options."""
+    return {
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
@@ -80,23 +36,26 @@ def _base_opts() -> dict:
         },
     }
 
-    cookie_path = _get_cookie_path()
-    if cookie_path:
-        opts["cookiefile"] = cookie_path
-
-    return opts
-
 
 def _run_yt_dlp_extract(video_id: str, quality: str = "high") -> Optional[dict]:
     """Synchronous yt-dlp extraction — runs in thread pool."""
     import yt_dlp
 
     quality_formats = {
-        "high": "bestaudio/best",
-        "medium": "bestaudio[abr<=128]/bestaudio/best",
-        "low": "bestaudio[abr<=64]/worstaudio/best",
-        "48k": "bestaudio[abr<=48]/worstaudio/best",
-        "64k": "bestaudio[abr<=64]/worstaudio/best",
+        # Best audio (M4A/AAC preferred) -> any audio -> best
+        "high": "bestaudio[ext=m4a]/bestaudio[acodec*=mp4a]/bestaudio/best",
+        
+        # High (128kbps+)
+        "medium": "bestaudio[abr<=128]/bestaudio",
+        
+        # Saver (80kbps)
+        "low": "bestaudio[abr<=80]/bestaudio",
+        
+        # Ultra Saver (48kbps)
+        "48k": "bestaudio[abr<=56]/bestaudio",
+        
+        # Compatibility/Standard
+        "64k": "bestaudio[abr<=64]/bestaudio",
     }
 
     fmt = quality_formats.get(quality, quality_formats["high"])
@@ -108,13 +67,9 @@ def _run_yt_dlp_extract(video_id: str, quality: str = "high") -> Optional[dict]:
         "skip_download": True,
     }
 
-    attempts = 2 if opts.get("cookiefile") else 1
+    attempts = 2
 
     for attempt in range(attempts):
-        # On retry (attempt 1), remove cookiefile
-        if attempt > 0:
-            opts.pop("cookiefile", None)
-
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 url = f"https://www.youtube.com/watch?v={video_id}"
@@ -143,18 +98,10 @@ def _run_yt_dlp_extract(video_id: str, quality: str = "high") -> Optional[dict]:
                     "view_count": info.get("view_count", 0),
                 }
         except Exception as e:
-            err_msg = str(e).lower()
-            # If cookie/format error, retry without cookies
-            is_cookie_error = "cookie" in err_msg or "netscape" in err_msg or "format" in err_msg
-            
-            if attempt < attempts - 1 and is_cookie_error:
-                print(f"⚠️ Extract error for {video_id}: {e}. Retrying without cookies.")
-                # Disable global cookies to prevent future errors
-                global _cookie_file_path
-                _cookie_file_path = None
-                continue
-            
             print(f"❌ yt-dlp extract error for {video_id}: {e}")
+            if attempt < attempts - 1:
+                time.sleep(1)
+                continue
             return None
 
 
@@ -175,12 +122,9 @@ def _run_yt_dlp_search(query: str, limit: int = 10) -> List[dict]:
         "default_search": f"ytsearch{fetch_limit}",
     }
 
-    attempts = 2 if opts.get("cookiefile") else 1
+    attempts = 2
 
     for attempt in range(attempts):
-        if attempt > 0:
-            opts.pop("cookiefile", None)
-
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 result = ydl.extract_info(f"ytsearch{fetch_limit}:{clean_query}", download=False)
@@ -248,16 +192,10 @@ def _run_yt_dlp_search(query: str, limit: int = 10) -> List[dict]:
 
                 return songs
         except Exception as e:
-            err_msg = str(e).lower()
-            is_cookie_error = "cookie" in err_msg or "netscape" in err_msg
-            
-            if attempt < attempts - 1 and is_cookie_error:
-                print(f"⚠️ Search error: {e}. Retrying without cookies.")
-                global _cookie_file_path
-                _cookie_file_path = None
-                continue
-                
             print(f"❌ yt-dlp search error: {e}")
+            if attempt < attempts - 1:
+                time.sleep(1)
+                continue
             return []
 
 
