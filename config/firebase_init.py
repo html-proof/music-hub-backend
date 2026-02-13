@@ -32,11 +32,38 @@ def initialize_firebase():
     }
 
     try:
-        if os.path.exists(cred_path):
+        # 1. Try raw JSON from environment variable
+        cert_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+        
+        # 2. Try Base64 from environment variable
+        cert_base64 = os.getenv("FIREBASE_SERVICE_ACCOUNT_BASE64")
+        if not cert_json and cert_base64:
+            import base64
+            try:
+                cert_json = base64.b64decode(cert_base64).decode("utf-8")
+            except Exception as e:
+                print(f"⚠️ Failed to decode FIREBASE_SERVICE_ACCOUNT_BASE64: {e}")
+
+        if cert_json:
+            import json
+            try:
+                cert_dict = json.loads(cert_json)
+                cred = credentials.Certificate(cert_dict)
+                firebase_admin.initialize_app(cred, options)
+                print("✅ Firebase initialized with credentials from environment variable")
+            except Exception as e:
+                print(f"⚠️ Failed to initialize with environment credentials: {e}")
+                # Fall back to file if env fails
+                if os.path.exists(cred_path):
+                    cred = credentials.Certificate(cred_path)
+                    firebase_admin.initialize_app(cred, options)
+                    print(f"✅ Firebase initialized with service account file: {cred_path}")
+                else:
+                    raise e
+        elif os.path.exists(cred_path):
             cred = credentials.Certificate(cred_path)
             firebase_admin.initialize_app(cred, options)
-            print(f"✅ Firebase initialized with service account: {cred_path}")
-            print(f"   Project: {FIREBASE_PROJECT_ID}")
+            print(f"✅ Firebase initialized with service account file: {cred_path}")
         else:
             try:
                 firebase_admin.initialize_app(options=options)

@@ -22,4 +22,5 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
 # Run the application
-CMD sh -c 'if [ -n "$FIREBASE_SERVICE_ACCOUNT_JSON" ]; then echo "$FIREBASE_SERVICE_ACCOUNT_JSON" > firebase-service-account.json; fi && exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}'
+# Run the application
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -26,44 +26,26 @@ The deployment will fail initially because credentials are missing. Fix this by 
 
 | Variable | Value | Description |
 |---|---|---|
-| `PORT` | `8000` | Railway sets this automatically, but good to add |
-| `HOST` | `0.0.0.0` | Required for Docker/Nixpacks visibility |
+| `PORT` | `8000` | Railway sets this automatically |
+| `HOST` | `0.0.0.0` | Required for visibility |
 | `FIREBASE_PROJECT_ID` | `sample-music-65323` | Your Firebase Project ID |
 | `FIREBASE_DATABASE_URL` | `...` | Your RTDB URL |
-| `CORS_ORIGINS` | `*` | Allow all origins (or your frontend URL) |
+| `CORS_ORIGINS` | `*` | Allow all origins |
 
-### ⚠️ Critical: Firebase Credentials
+### 🔑 Critical: Firebase Credentials
 
-Railway cannot read your local JSON file. You must provide the file content via a variable.
+The backend now supports reading your service account key directly from environment variables. **No file system hacks required.**
 
-1.  **Option A: Base64 Encoded (Recommended)**
-    - Run this locally: `base64 -w 0 firebase-service-account.json`
-    - Copy the output string.
-    - Create a variable `FIREBASE_CREDENTIALS_BASE64` with this value.
-    - *Note: Backend code needs update to support this. See below.*
-
-2.  **Option B: Raw Content (Simpler)**
-    - Copy the **entire content** of `firebase-service-account.json`.
-    - Create a variable `FIREBASE_SERVICE_ACCOUNT_JSON` with this value.
-    - *Note: Backend code needs update to support this.*
-
-**Since our code currently looks for a file path**, we need a small tweak to write this variable to a file on startup.
-
-### Quick Fix for File-Based Auth
-Add this `Pre-Deploy Command` in Railway Settings > Build:
+Update your **Start Command** in Railway Settings to (or leave it to use the `Procfile`):
 ```bash
-echo $FIREBASE_SERVICE_ACCOUNT_JSON > firebase-service-account.json
+python -m uvicorn main:app --host 0.0.0.0 --port $PORT
 ```
-*Note: This might expose credentials in build logs. Be careful.*
 
-**Better Approach (Safe):**
-Use `echo "$FIREBASE_SERVICE_ACCOUNT_JSON" > /app/firebase-service-account.json` in the start command.
+### How to set the Credentials Variable:
+Add the variable **`FIREBASE_SERVICE_ACCOUNT_JSON`** with the **raw content** of your `firebase-service-account.json`.
 
-Update your `Procfile` or Start Command in Railway to:
-```bash
-echo "$FIREBASE_SERVICE_ACCOUNT_JSON" > firebase-service-account.json && python -m uvicorn main:app --host 0.0.0.0 --port $PORT
-```
-And add the variable `FIREBASE_SERVICE_ACCOUNT_JSON` with the file contents.
+> [!TIP]
+> If your JSON content causes issues in the dashboard dashboard, encode it to Base64 first and use the variable name **`FIREBASE_SERVICE_ACCOUNT_BASE64`** instead.
 
 ## Step 3: Verify Deployment
 
@@ -75,6 +57,6 @@ And add the variable `FIREBASE_SERVICE_ACCOUNT_JSON` with the file contents.
 
 ## Troubleshooting
 
-- **`500 Internal Server Error`**: Likely missing `firebase-service-account.json`. Check logs.
-- **`App crashed`**: Check the "Deploy Logs" tab.
-- **Slow specific endpoints**: Cold starts or rate limits. Railway prevents cold starts on paid plans.
+- **`Firebase initialization failed: Invalid certificate`**: Ensure you copied the FULL content of the Service Account key (starts with `{ "type": "service_account" ... }`). **Do NOT use `google-services.json`**.
+- **`App crashed`**: Check the "Deploy Logs" tab in Railway.
+- **`403 Forbidden`**: Check your Firebase Rules (RTDB must be open to valid authenticated users).
