@@ -37,6 +37,20 @@ def _get_cookie_path() -> Optional[str]:
         return None
 
     try:
+        # Ensure Netscape header is present (yt-dlp requires it)
+        if not cookies_content.startswith("# Netscape HTTP Cookie File") and \
+           not cookies_content.startswith("# HTTP Cookie File"):
+            cookies_content = "# Netscape HTTP Cookie File\n# This file is generated automatically.\n\n" + cookies_content
+
+        # Basic validation — must have at least one tab-separated cookie line
+        has_cookie = any(
+            line.strip() and not line.startswith("#") and "\t" in line
+            for line in cookies_content.split("\n")
+        )
+        if not has_cookie:
+            print("⚠️ YOUTUBE_COOKIES env var set but contains no valid cookie lines — ignoring")
+            return None
+
         # Write cookies to a temp file
         cookie_path = os.path.join(tempfile.gettempdir(), "yt_cookies.txt")
         with open(cookie_path, "w", encoding="utf-8") as f:
