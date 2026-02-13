@@ -121,6 +121,12 @@ class PlayerProvider extends ChangeNotifier {
 
     _currentSong = song;
 
+    // Sync _currentIndex if this song is in the queue
+    final queueIdx = _queue.indexWhere((s) => s.id == song.id);
+    if (queueIdx >= 0) {
+      _currentIndex = queueIdx;
+    }
+
     // Check local cache first — instant playback if cached
     final cachedUrl = _streamUrlCache[song.id];
     if (cachedUrl != null) {
@@ -176,6 +182,27 @@ class PlayerProvider extends ChangeNotifier {
       _prefetchUpcoming();
     } catch (e) {
       debugPrint("Error starting playback: $e");
+      // URL might be expired — clear cache and retry with fresh URL
+      _streamUrlCache.remove(song.id);
+      try {
+        final data = await _apiService.getStreamUrl(song.id);
+        if (data != null && data['stream_url'] != null) {
+          _streamUrlCache[song.id] = data['stream_url'];
+          final retrySource = AudioSource.uri(
+            Uri.parse(data['stream_url']),
+            tag: MediaItem(
+              id: song.id,
+              title: song.title,
+              artist: song.artist,
+              artUri: Uri.parse(song.thumbnailUrl),
+            ),
+          );
+          await _player.setAudioSource(retrySource);
+          _player.play();
+        }
+      } catch (retryError) {
+        debugPrint("Retry also failed: $retryError");
+      }
     }
   }
 
