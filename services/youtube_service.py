@@ -10,11 +10,11 @@ from typing import Optional, List, Dict
 from cachetools import TTLCache
 
 
-# In-memory cache for resolved stream URLs (5 min TTL)
-_url_cache: TTLCache = TTLCache(maxsize=500, ttl=300)
+# In-memory cache for resolved stream URLs (30 min TTL — YouTube URLs valid ~6hrs)
+_url_cache: TTLCache = TTLCache(maxsize=2000, ttl=1800)
 
-# In-memory cache for search results (2 min TTL)
-_search_cache: TTLCache = TTLCache(maxsize=100, ttl=120)
+# In-memory cache for search results (10 min TTL)
+_search_cache: TTLCache = TTLCache(maxsize=500, ttl=600)
 
 # Hit/miss counters
 _cache_stats = {"search_hits": 0, "search_misses": 0, "stream_hits": 0, "stream_misses": 0}
@@ -165,11 +165,10 @@ def _clean_artist_name(uploader: str, title: str) -> str:
 
 
 async def search_songs(query: str, limit: int = 10) -> List[dict]:
-    """Search YouTube for songs."""
+    """Search YouTube for songs — auto-prefetches top results for instant play."""
     cache_key = f"search:{query}:{limit}"
     if cache_key in _search_cache:
         _cache_stats["search_hits"] += 1
-        print(f"🔥 Search cache HIT: {query}")
         return _search_cache[cache_key]
 
     _cache_stats["search_misses"] += 1
@@ -178,6 +177,10 @@ async def search_songs(query: str, limit: int = 10) -> List[dict]:
 
     if results:
         _search_cache[cache_key] = results
+        # Auto-prefetch top 5 results in background for instant playback
+        top_ids = [r["id"] for r in results[:5] if r.get("id")]
+        if top_ids:
+            asyncio.create_task(_background_prefetch(top_ids))
 
     return results
 
@@ -200,13 +203,18 @@ async def get_stream_url(video_id: str, quality: str = "high") -> Optional[dict]
     return result
 
 
+async def _background_prefetch(video_ids: List[str], quality: str = "high"):
+    """Concurrently prefetch stream URLs — fires after search to warm cache."""
+    try:
+        tasks = [get_stream_url(vid, quality) for vid in video_ids[:5]]
+        await asyncio.gather(*tasks, return_exceptions=True)
+    except Exception:
+        pass  # Fire-and-forget, never crash
+
+
 async def prefetch_songs(video_ids: List[str], quality: str = "high"):
     """Prefetch stream URLs for a list of video IDs (fire-and-forget)."""
-    for vid in video_ids[:5]:  # Limit to 5
-        try:
-            await get_stream_url(vid, quality)
-        except Exception as e:
-            print(f"⚠️ Prefetch error for {vid}: {e}")
+    await _background_prefetch(video_ids, quality)
 
 
 def get_cache_stats() -> dict:
