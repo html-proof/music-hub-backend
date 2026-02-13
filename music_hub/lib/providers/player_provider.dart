@@ -1,4 +1,4 @@
-
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
@@ -24,6 +24,8 @@ class PlayerProvider extends ChangeNotifier {
   bool _isShuffled = false;
   RepeatMode _repeatMode = RepeatMode.off;
   String? _currentPlayId;
+  String? _slowNetworkMessage;
+  int _loadingGeneration = 0;  // Cancels stale loads on rapid taps
 
   PlayerProvider(this._apiService) {
     _initPlayer();
@@ -41,6 +43,7 @@ class PlayerProvider extends ChangeNotifier {
   RepeatMode get repeatMode => _repeatMode;
   bool get hasNext => _currentIndex < _queue.length - 1;
   bool get hasPrevious => _currentIndex > 0;
+  String? get slowNetworkMessage => _slowNetworkMessage;
   double get progress => _duration.inSeconds > 0 
       ? _position.inSeconds / _duration.inSeconds 
       : 0.0;
@@ -85,8 +88,6 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   /// Prefetch stream URLs for a list of songs so playback is instant.
-  /// Call this whenever songs are displayed to the user (search results, 
-  /// recommendations, queue updates).
   void prefetchSongs(List<Song> songs) {
     final ids = songs
         .where((s) => !_streamUrlCache.containsKey(s.id))
@@ -119,7 +120,17 @@ class PlayerProvider extends ChangeNotifier {
   Future<void> playSong(Song song) async {
     _trackSkipIfNeeded();
 
+    // IMMEDIATELY stop current playback
+    await _player.stop();
+
     _currentSong = song;
+    _slowNetworkMessage = null;
+    _position = Duration.zero;
+    _duration = Duration.zero;
+
+    // Increment generation — any older load becomes stale
+    _loadingGeneration++;
+    final thisGeneration = _loadingGeneration;
 
     // Sync _currentIndex if this song is in the queue
     final queueIdx = _queue.indexWhere((s) => s.id == song.id);
@@ -130,26 +141,60 @@ class PlayerProvider extends ChangeNotifier {
     // Check local cache first — instant playback if cached
     final cachedUrl = _streamUrlCache[song.id];
     if (cachedUrl != null) {
-      // INSTANT path — no network wait
       _isLoading = false;
       notifyListeners();
       await _startPlayback(song, cachedUrl);
-    } else {
-      // Fetch path — show loading, get URL
-      _isLoading = true;
-      notifyListeners();
-      try {
-        final data = await _apiService.getStreamUrl(song.id);
-        if (data != null && data['stream_url'] != null) {
-          _streamUrlCache[song.id] = data['stream_url'];
-          await _startPlayback(song, data['stream_url']);
-        }
-      } catch (e) {
-        debugPrint("Error playing song: $e");
-      } finally {
-        _isLoading = false;
+      return;
+    }
+
+    // Fetch path — show loading + 10s timeout
+    _isLoading = true;
+    notifyListeners();
+
+    // Show "slow network" message after 3 seconds
+    Timer(const Duration(seconds: 3), () {
+      if (_isLoading && _loadingGeneration == thisGeneration) {
+        _slowNetworkMessage = 'Internet is slow, please wait...';
         notifyListeners();
       }
+    });
+
+    try {
+      final data = await _apiService.getStreamUrl(song.id)
+          .timeout(const Duration(seconds: 10));
+      
+      // Check if user tapped another song while we were loading
+      if (_loadingGeneration != thisGeneration) return;
+
+      if (data != null && data['stream_url'] != null) {
+        _streamUrlCache[song.id] = data['stream_url'];
+        _slowNetworkMessage = null;
+        _isLoading = false;
+        notifyListeners();
+        await _startPlayback(song, data['stream_url']);
+      } else {
+        // No stream URL — skip to next
+        _isLoading = false;
+        _slowNetworkMessage = null;
+        notifyListeners();
+        if (hasNext) skipToNext();
+      }
+    } on TimeoutException {
+      if (_loadingGeneration != thisGeneration) return;
+      debugPrint("⏰ Song load timed out — skipping to next");
+      _isLoading = false;
+      _slowNetworkMessage = null;
+      notifyListeners();
+      // Auto-skip to next song on timeout
+      if (hasNext) {
+        skipToNext();
+      }
+    } catch (e) {
+      if (_loadingGeneration != thisGeneration) return;
+      debugPrint("Error playing song: $e");
+      _isLoading = false;
+      _slowNetworkMessage = null;
+      notifyListeners();
     }
   }
 

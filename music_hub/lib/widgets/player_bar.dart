@@ -84,12 +84,19 @@ class PlayerBar extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 2),
-                          Text(
-                            song.artist,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                          ),
+                          if (player.slowNetworkMessage != null)
+                            Text(
+                              player.slowNetworkMessage!,
+                              maxLines: 1,
+                              style: const TextStyle(fontSize: 11, color: Colors.amber),
+                            )
+                          else
+                            Text(
+                              song.artist,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                            ),
                         ],
                       ),
                     ),
