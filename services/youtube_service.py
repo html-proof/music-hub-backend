@@ -78,17 +78,23 @@ def _run_yt_dlp_search(query: str, limit: int = 10) -> List[dict]:
     """Synchronous yt-dlp search — runs in thread pool."""
     import yt_dlp
 
+    # Sanitize query first
+    clean_query = _sanitize_query(query)
+
+    # Request extra results to compensate for filtered items
+    fetch_limit = min(limit + 10, 30)
+
     opts = {
         "quiet": True,
         "no_warnings": True,
         "extract_flat": True,
         "skip_download": True,
-        "default_search": f"ytsearch{limit}",
+        "default_search": f"ytsearch{fetch_limit}",
     }
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            result = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
+            result = ydl.extract_info(f"ytsearch{fetch_limit}:{clean_query}", download=False)
             entries = result.get("entries", []) if result else []
 
             songs = []
@@ -103,6 +109,10 @@ def _run_yt_dlp_search(query: str, limit: int = 10) -> List[dict]:
                 thumbnail = entry.get("thumbnail", entry.get("thumbnails", [{}])[0].get("url", "") if entry.get("thumbnails") else "")
 
                 if not video_id or not title:
+                    continue
+
+                # Block inappropriate / non-music content
+                if _is_blocked_content(title):
                     continue
 
                 # Generate thumbnail if missing
@@ -121,10 +131,71 @@ def _run_yt_dlp_search(query: str, limit: int = 10) -> List[dict]:
                     "durationSeconds": int(duration) if duration else 0,
                 })
 
+                if len(songs) >= limit:
+                    break
+
             return songs
     except Exception as e:
         print(f"❌ yt-dlp search error: {e}")
         return []
+
+
+# ==================== CONTENT FILTER ====================
+
+# Keywords that indicate non-music content — block these from results
+_BLOCKED_TITLE_KEYWORDS = [
+    # Non-music content
+    "movie scene", "movie clip", "movie scenes", "movie sences", "film scene",
+    "movie cut", "best scenes", "comedy scene", "fight scene", "action scene",
+    "bgm", "background music", "background score",
+    "3d audio", "8d audio", "16d audio", "3d song", "8d song",
+    "trailer", "teaser", "behind the scenes",
+    "interview", "making of", "reaction", "review",
+    "dialogue", "dialogues", "movie dialogue",
+    # Inappropriate content
+    "porn", "xxx", "nudity", "nude", "naked", "sex scene",
+    "adult video", "18+", "erotic", "explicit scene",
+    "hot scene", "kissing scene", "intimate scene", "bed scene",
+    "bold scene", "uncensored",
+    # Non-music types
+    "asmr", "podcast", "audiobook", "full movie", "full film",
+    "short film", "web series", "tv series",
+    "gameplay", "gaming", "walkthrough",
+    "news channel", "news report", "breaking news",
+    "speech", "lecture", "tutorial",
+]
+
+# Compiled regex for fast matching
+_BLOCKED_PATTERN = re.compile(
+    r'\b(?:' + '|'.join(re.escape(kw) for kw in _BLOCKED_TITLE_KEYWORDS) + r')\b',
+    re.IGNORECASE
+)
+
+# Keywords to strip from search queries
+_QUERY_BLOCK_WORDS = [
+    "porn", "xxx", "nudity", "nude", "naked", "sex",
+    "adult", "18+", "erotic", "explicit", "uncensored",
+    "hot scene", "kissing scene", "intimate", "bed scene",
+    "bold scene",
+]
+
+_QUERY_BLOCK_PATTERN = re.compile(
+    r'\b(?:' + '|'.join(re.escape(w) for w in _QUERY_BLOCK_WORDS) + r')\b',
+    re.IGNORECASE
+)
+
+
+def _is_blocked_content(title: str) -> bool:
+    """Check if a video title contains blocked keywords."""
+    return bool(_BLOCKED_PATTERN.search(title))
+
+
+def _sanitize_query(query: str) -> str:
+    """Remove inappropriate keywords from search query."""
+    cleaned = _QUERY_BLOCK_PATTERN.sub('', query)
+    # Collapse extra spaces
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned if cleaned else "music"
 
 
 def _clean_title(title: str) -> str:
