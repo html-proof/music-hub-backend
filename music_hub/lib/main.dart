@@ -1,8 +1,9 @@
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:just_audio_background/just_audio_background.dart';
+import 'package:audio_session/audio_session.dart';
 import 'firebase_options.dart';
 import 'services/api_service.dart';
 import 'providers/auth_provider.dart';
@@ -19,9 +20,23 @@ import 'widgets/player_bar.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize background audio — enables lock screen + notification controls
+  await JustAudioBackground.init(
+    androidNotificationChannelId: 'com.musichub.audio',
+    androidNotificationChannelName: 'Music Hub Playback',
+    androidNotificationOngoing: true,
+    androidShowNotificationBadge: true,
+    androidStopForegroundOnPause: false,
+  );
+
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // Configure audio session for music playback
+  final session = await AudioSession.instance;
+  await session.configure(const AudioSessionConfiguration.music());
 
   final apiService = ApiService();
 
