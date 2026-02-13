@@ -136,6 +136,23 @@ class ApiService {
     return [];
   }
 
+  /// Fetch personalized home feed based on user's language & moods from RTDB.
+  /// Returns sections with titles and song lists.
+  Future<List<RecommendationSection>> getLanguageMoodFeed() async {
+    final response = await _dio.get('/recommend/home-feed');
+    if (response.statusCode == 200 && response.data['success'] == true) {
+      final rawSections = response.data['sections'] as List? ?? [];
+      return rawSections.map((s) {
+        final title = s['title'] ?? 'Recommended';
+        final songs = (s['songs'] as List? ?? [])
+            .map((e) => Song.fromJson(e))
+            .toList();
+        return RecommendationSection(title: title, icon: '', songs: songs);
+      }).toList();
+    }
+    return [];
+  }
+
   // ==================== ONBOARDING ====================
 
   Future<Map<String, dynamic>> checkOnboarding() async {

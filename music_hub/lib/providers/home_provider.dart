@@ -22,24 +22,32 @@ class HomeProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final results = await Future.wait([
-        _fetchSection('🎵 Personalized', '🎵', () => _apiService.getPersonalized()),
-        _fetchSection('🔥 For You', '🔥', () => uid != null
-            ? _apiService.getForYou(uid)
-            : _apiService.getPersonalized()),
-        _fetchSection('💿 Daily Mix', '💿', () => uid != null
-            ? _apiService.getDailyMix(uid)
-            : _apiService.getSmartFeed()),
-        _fetchSection('✨ Smart Picks', '✨', () => _apiService.getSmartFeed()),
-      ]);
+      // Primary: RTDB-powered feed based on user's language & moods
+      final rtdbSections = await _apiService.getLanguageMoodFeed();
 
-      _sections = results.where((s) => s.songs.isNotEmpty).toList();
+      if (rtdbSections.isNotEmpty) {
+        _sections = rtdbSections.where((s) => s.songs.isNotEmpty).toList();
+      } else {
+        // Fallback: generic recommendations if user not onboarded yet
+        final results = await Future.wait([
+          _fetchSection('🎵 Trending', '🎵', () => _apiService.getPersonalized()),
+          _fetchSection('🔥 For You', '🔥', () => uid != null
+              ? _apiService.getForYou(uid)
+              : _apiService.getPersonalized()),
+          _fetchSection('💿 Daily Mix', '💿', () => uid != null
+              ? _apiService.getDailyMix(uid)
+              : _apiService.getSmartFeed()),
+          _fetchSection('✨ Smart Picks', '✨', () => _apiService.getSmartFeed()),
+        ]);
+        _sections = results.where((s) => s.songs.isNotEmpty).toList();
+      }
 
       if (_sections.isEmpty) {
         _error = 'No recommendations yet. Search and play some music first!';
       }
     } catch (e) {
       _error = 'Failed to load recommendations';
+      debugPrint('HomeProvider error: $e');
     } finally {
       _isLoading = false;
       notifyListeners();

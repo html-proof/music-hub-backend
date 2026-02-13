@@ -2,9 +2,11 @@
 Recommendation Router — personalized, for-you, daily-mix, mood, artist, similar endpoints.
 """
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from typing import Optional
 from services import recommendation_service as rec
+from services.firebase_db import music_db
+from middleware.auth import get_current_user, get_optional_user
 
 router = APIRouter(prefix="/recommend", tags=["recommendations"])
 
@@ -78,4 +80,55 @@ async def by_artist(
 async def similar_songs(id: str = Query(..., description="Video ID")):
     """Get songs similar to a given video."""
     results = await rec.get_similar(id, limit=20)
+    return {"success": True, "data": results}
+
+
+@router.get("/home-feed")
+async def home_feed(user: dict = Depends(get_optional_user)):
+    """
+    Get personalized home feed based on user's language and moods from RTDB.
+    Reads preferences from Firebase Realtime Database and generates
+    language+mood specific recommendation sections.
+    """
+    language = "english"
+    moods = ["chill"]
+
+    if user:
+        uid = user.get("uid", "")
+        if uid:
+            rtdb_user = music_db.get_user(uid)
+            if rtdb_user:
+                language = rtdb_user.get("language", "english")
+                moods = rtdb_user.get("moods", ["chill"])
+
+    sections = await rec.get_language_mood_feed(language, moods, limit=15)
+
+    return {
+        "success": True,
+        "language": language,
+        "moods": moods,
+        "sections": sections,
+    }
+
+
+@router.get("/by-language")
+async def by_language(
+    language: str = Query("english", description="Language"),
+    mood: str = Query("", description="Optional mood filter"),
+):
+    """Get recommendations filtered by language and optional mood."""
+    if mood:
+        query = f"{mood} {language} songs"
+    else:
+        from datetime import datetime
+        y = datetime.now().year
+        lang_queries = rec._language_queries().get(
+            language.lower(),
+            [f"top {language} songs {y}"]
+        )
+        import random
+        query = random.choice(lang_queries)
+
+    from services.youtube_service import search_songs
+    results = await search_songs(query, limit=20)
     return {"success": True, "data": results}
