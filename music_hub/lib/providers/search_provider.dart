@@ -9,6 +9,7 @@ class SearchProvider extends ChangeNotifier {
   
   List<Song> _results = [];
   List<String> _suggestions = [];
+  List<String> _searchHistory = [];
   bool _isLoading = false;
   bool _isSuggestionsLoading = false;
   String? _error;
@@ -19,6 +20,7 @@ class SearchProvider extends ChangeNotifier {
 
   List<Song> get results => _results;
   List<String> get suggestions => _suggestions;
+  List<String> get searchHistory => _searchHistory;
   bool get isLoading => _isLoading;
   bool get isSuggestionsLoading => _isSuggestionsLoading;
   String? get error => _error;
@@ -62,6 +64,9 @@ class SearchProvider extends ChangeNotifier {
     _suggestions = [];
     notifyListeners();
 
+    // Add to search history
+    _addToHistory(query.trim());
+
     try {
       _results = await _apiService.searchSongs(query);
       
@@ -73,6 +78,26 @@ class SearchProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  void _addToHistory(String query) {
+    // Remove if already exists (move to top)
+    _searchHistory.remove(query);
+    _searchHistory.insert(0, query);
+    // Keep max 15
+    if (_searchHistory.length > 15) {
+      _searchHistory = _searchHistory.sublist(0, 15);
+    }
+  }
+
+  void removeFromHistory(String query) {
+    _searchHistory.remove(query);
+    notifyListeners();
+  }
+
+  void clearHistory() {
+    _searchHistory.clear();
+    notifyListeners();
   }
 
   void clear() {

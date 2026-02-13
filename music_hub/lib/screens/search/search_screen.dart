@@ -17,13 +17,6 @@ class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
 
-  static const moodChips = [
-    ('😊 Happy', 'happy songs'), ('😢 Sad', 'sad songs'),
-    ('💕 Romantic', 'romantic songs'), ('⚡ Energetic', 'energetic songs'),
-    ('🎉 Party', 'party songs'), ('😎 Chill', 'chill songs'),
-    ('💪 Workout', 'workout songs'), ('🎯 Focus', 'focus music'),
-  ];
-
   @override
   void dispose() {
     _controller.dispose();
@@ -99,7 +92,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           ? _buildResults(search, player)
                           : search.suggestions.isNotEmpty
                               ? _buildSuggestions(search)
-                              : _buildBrowse(search),
+                              : _buildHistory(search),
             ),
           ],
         ),
@@ -142,63 +135,91 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildBrowse(SearchProvider search) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 24),
-          const Text(
-            'Browse by Mood',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-          ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: moodChips.map((chip) {
-              return InkWell(
-                onTap: () {
-                  _controller.text = chip.$2;
-                  search.search(chip.$2);
-                },
-                borderRadius: BorderRadius.circular(24),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        const Color(0xFF7C3AED).withOpacity(0.2),
-                        const Color(0xFFEC4899).withOpacity(0.1),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: Colors.white10),
-                  ),
-                  child: Text(
-                    chip.$1,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 80),
-          Center(
-            child: Column(
-              children: [
-                Icon(Icons.search_rounded, size: 64, color: Colors.grey[800]),
-                const SizedBox(height: 12),
-                Text(
-                  'Search for your favorite music',
-                  style: TextStyle(color: Colors.grey[600], fontSize: 15),
-                ),
-              ],
+  Widget _buildHistory(SearchProvider search) {
+    if (search.searchHistory.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.search_rounded, size: 64, color: Colors.grey[800]),
+            const SizedBox(height: 12),
+            Text(
+              'Search for your favorite music',
+              style: TextStyle(color: Colors.grey[600], fontSize: 15),
             ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Recent Searches',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              TextButton(
+                onPressed: () => search.clearHistory(),
+                child: const Text(
+                  'Clear all',
+                  style: TextStyle(color: Color(0xFF7C3AED), fontSize: 13),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+
+        // History list
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.only(bottom: 120),
+            itemCount: search.searchHistory.length,
+            itemBuilder: (context, index) {
+              final query = search.searchHistory[index];
+              return Dismissible(
+                key: Key(query),
+                direction: DismissDirection.endToStart,
+                onDismissed: (_) => search.removeFromHistory(query),
+                background: Container(
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.only(right: 20),
+                  color: Colors.red.withOpacity(0.2),
+                  child: const Icon(Icons.delete_outline, color: Colors.red),
+                ),
+                child: ListTile(
+                  leading: const Icon(Icons.history, color: Colors.white38),
+                  title: Text(
+                    query,
+                    style: const TextStyle(color: Colors.white70, fontSize: 15),
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.north_west, color: Colors.white24, size: 18),
+                    onPressed: () {
+                      _controller.text = query;
+                      setState(() {});
+                    },
+                  ),
+                  onTap: () {
+                    _controller.text = query;
+                    search.search(query);
+                  },
+                ),
+              ).animate().fadeIn(delay: (index * 30).ms);
+            },
+          ),
+        ),
+      ],
     );
   }
 }
