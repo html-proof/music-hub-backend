@@ -84,22 +84,31 @@ async def similar_songs(id: str = Query(..., description="Video ID")):
 
 
 @router.get("/home-feed")
-async def home_feed(user: dict = Depends(get_optional_user)):
+async def home_feed(user: dict = Depends(get_current_user)):
     """
     Get personalized home feed based on user's language and moods from RTDB.
-    Reads preferences from Firebase Realtime Database and generates
-    language+mood specific recommendation sections.
+    Requires authentication — reads user's preferences from Firebase RTDB.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    uid = user.get("uid", "")
     language = "english"
     moods = ["chill"]
 
-    if user:
-        uid = user.get("uid", "")
-        if uid:
-            rtdb_user = music_db.get_user(uid)
-            if rtdb_user:
-                language = rtdb_user.get("language", "english")
-                moods = rtdb_user.get("moods", ["chill"])
+    if uid:
+        rtdb_user = music_db.get_user(uid)
+        logger.info(f"[home-feed] uid={uid}, rtdb_user={rtdb_user}")
+
+        if rtdb_user:
+            language = rtdb_user.get("language", "english")
+            moods = rtdb_user.get("moods", ["chill"])
+        else:
+            logger.warning(f"[home-feed] No RTDB user found for uid={uid}, using defaults")
+    else:
+        logger.warning("[home-feed] No uid in auth token")
+
+    logger.info(f"[home-feed] Using language={language}, moods={moods}")
 
     sections = await rec.get_language_mood_feed(language, moods, limit=15)
 
@@ -109,7 +118,6 @@ async def home_feed(user: dict = Depends(get_optional_user)):
         "moods": moods,
         "sections": sections,
     }
-
 
 @router.get("/by-language")
 async def by_language(
