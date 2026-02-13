@@ -178,6 +178,25 @@ def _run_yt_dlp_search(query: str, limit: int = 10) -> List[dict]:
                 if duration and int(duration) > 600:
                     continue
 
+                is_short_query = any(w in clean_query.lower() for w in ["short", "intro", "interlude", "skit"])
+
+                if not is_short_query and duration:
+                    dur_sec = int(duration)
+                    
+                    # 1. Hard block very short content (< 60s) unless searching for it
+                    if dur_sec < 60:
+                        continue
+
+                    # 2. Block short content (60s - 120s) if title looks like a clip/scene
+                    # Addresses 1:50 movie clips
+                    if dur_sec < 120 and any(w in title.lower() for w in ["scene", "clip", "preview", "snippet", "teaser", "movie", "film", "trailer"]):
+                        continue
+                    
+                    # 3. Block generic short content (< 90s) to be safe?
+                    # Many punk/pop songs are > 2m. Let's be safe with 90s.
+                    if dur_sec < 90:
+                        continue
+
                 # Generate thumbnail if missing
                 if not thumbnail:
                     thumbnail = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
@@ -215,6 +234,7 @@ _BLOCKED_TITLE_KEYWORDS = [
     "trailer", "teaser", "behind the scenes",
     "interview", "making of", "reaction", "review",
     "dialogue", "dialogues", "movie dialogue",
+    "snippet", "preview", "teaser",
     # Inappropriate content
     "porn", "xxx", "nudity", "nude", "naked", "sex scene",
     "adult video", "18+", "erotic", "explicit scene",

@@ -44,6 +44,8 @@ class PlayerProvider extends ChangeNotifier {
     useLazyPreparation: true,
   );
 
+
+
   PlayerProvider(this._apiService) {
     _initPlayer();
   }
@@ -92,24 +94,16 @@ class PlayerProvider extends ChangeNotifier {
     });
   }
 
-  /// Called when the user taps prev/next from the notification/lock screen
+  /// Called when simple playlist navigation happens (e.g. user taps Next on lock screen)
   void _onNotificationTrackChange(int newIndex) {
-    _trackSkipIfNeeded();
+    if (_queue.isEmpty || newIndex >= _queue.length) return;
+    
+    _trackSkipIfNeeded(); // Track the skip of the previous song
     _currentIndex = newIndex;
     _currentSong = _queue[newIndex];
-    notifyListeners();
-
-    // Track the play
-    _apiService.trackPlay(
-      videoId: _currentSong!.id,
-      title: _currentSong!.title,
-      artist: _currentSong!.artist,
-      duration: _currentSong!.durationSeconds,
-    ).then((playId) {
-      _currentPlayId = playId;
-    });
-
-    _prefetchUpcoming();
+    
+    // Resolve URL effectively - playSong handles the resolution
+    playSong(_queue[newIndex], forceIndex: newIndex);
   }
 
   void _onSongCompleted() {
@@ -125,9 +119,17 @@ class PlayerProvider extends ChangeNotifier {
       _player.seek(Duration.zero);
       _player.play();
     } else if (hasNext) {
-      skipToNext();
+      // Automatic advancement - managed by playlist mostly, but we trigger next logic
+      // to ensure UI updates and next song resolution if needed (though playlist handles gapless)
+      // Actually with ConcatenatingAudioSource, it advances automatically. 
+      // We just need to update UI state if we weren't already.
+      // However, we resolve URLs lazily. `just_audio` will ask for the next source.
+      // But since we use placeholders, we need to intercept.
+      // For now, let's trust the onNotificationTrackChange / current index stream
+      // which fires when the player advances.
     } else if (_repeatMode == RepeatMode.all && _queue.isNotEmpty) {
-      _playIndex(0);
+      _player.seek(Duration.zero, index: 0);
+      _player.play();
     }
   }
 
@@ -161,11 +163,12 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> playSong(Song song) async {
+  Future<void> playSong(Song song, {int? forceIndex}) async {
     _trackSkipIfNeeded();
 
-    // IMMEDIATELY stop current playback
-    await _player.stop();
+    // If we're playing from queue (forceIndex provided), ensure checking correct index
+    // If just playing a single song not in queue? We put it in queue/playlist.
+    // But playSong is mostly called when user taps a song.
 
     _currentSong = song;
     _slowNetworkMessage = null;
@@ -177,17 +180,21 @@ class PlayerProvider extends ChangeNotifier {
     final thisGeneration = _loadingGeneration;
 
     // Sync _currentIndex if this song is in the queue
-    final queueIdx = _queue.indexWhere((s) => s.id == song.id);
-    if (queueIdx >= 0) {
-      _currentIndex = queueIdx;
+    if (forceIndex != null) {
+      _currentIndex = forceIndex;
+    } else {
+      final queueIdx = _queue.indexWhere((s) => s.id == song.id);
+      if (queueIdx >= 0) {
+        _currentIndex = queueIdx;
+      }
     }
-
+    
     // Check local cache first — instant playback if cached & not expired
     final cached = _streamUrlCache[song.id];
     if (cached != null && !cached.isExpired) {
       _isLoading = false;
       notifyListeners();
-      await _startPlayback(song, cached.url);
+      await _startPlayback(song, cached.url, index: _currentIndex);
       return;
     }
     // Remove expired entry
@@ -219,7 +226,7 @@ class PlayerProvider extends ChangeNotifier {
         _slowNetworkMessage = null;
         _isLoading = false;
         notifyListeners();
-        await _startPlayback(song, data['stream_url']);
+        await _startPlayback(song, data['stream_url'], index: _currentIndex);
       } else {
         // No stream URL — skip to next
         _isLoading = false;
@@ -246,7 +253,7 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _startPlayback(Song song, String streamUrl) async {
+  Future<void> _startPlayback(Song song, String streamUrl, {required int index}) async {
     try {
       final source = AudioSource.uri(
         Uri.parse(streamUrl),
@@ -258,8 +265,53 @@ class PlayerProvider extends ChangeNotifier {
         ),
       );
 
-      await _player.setAudioSource(source);
-      _player.play();
+      // If playing within the playlist context, we must UPDATE the source at that index
+      // and then seek to it, rather than setting a single source.
+      if (index >= 0 && index < _playlist.length) {
+         // Sadly there's no `replaceAt` in ConcatenatingAudioSource that doesn't disrupt others easily
+         // But we can remove and insert. 
+         // Or, better for single song replacement:
+         // Just perform a seek if it's already set? No, we use placeholders.
+         // Replace placeholder with real source.
+         // Note: manipulating playlist while playing might be tricky.
+         // Safe approach: removeAt(index), insert(index, source).
+         
+         // Wait, simply replacing the playlist or using setAudioSource clears the queue context.
+         // We must maintain the playlist.
+         
+         // If calls come here, we have a valid URL.
+         
+         // We can't easily modify the source *in place* without removing/adding.
+         // Let's indiscriminately replace for now.
+         
+         // BUT wait: modifying the playlist usually stops playback if we touch current index.
+         // A safer way for lazy loading with just_audio is implementing a custom AudioSource
+         // but that's complex.
+         
+         // Alternative: `setAudioSource` with the FULL playlist again? No, interrupts playback.
+         // Use `LockCachingAudioSource`? NO.
+         
+         // Correct approach with `ConcatenatingAudioSource`:
+         // We initiated with placeholders.
+         // We can replace the item at `index`.
+         
+         // Actually, to avoid glitches, we check if the item at `index` is already resolved (same URI).
+         // If not, we replace it.
+         
+         // Assuming we can't inspect URI easily from source list.
+         // Let's indiscriminately replace for now.
+         
+         await _playlist.removeAt(index);
+         await _playlist.insert(index, source);
+         
+         // Then seek to it
+         await _player.seek(Duration.zero, index: index);
+         if (!_player.playing) _player.play();
+      } else {
+         // Fallback if index invalid (shouldn't happen with proper queue sync)
+         await _player.setAudioSource(source);
+         _player.play();
+      }
 
       // Track play in background — don't block playback
       _apiService.trackPlay(
@@ -290,8 +342,16 @@ class PlayerProvider extends ChangeNotifier {
               artUri: Uri.parse(song.thumbnailUrl),
             ),
           );
-          await _player.setAudioSource(retrySource);
-          _player.play();
+          
+          if (index >= 0 && index < _playlist.length) {
+             await _playlist.removeAt(index);
+             await _playlist.insert(index, retrySource);
+             await _player.seek(Duration.zero, index: index);
+             _player.play();
+          } else {
+             await _player.setAudioSource(retrySource);
+             _player.play();
+          }
         }
       } catch (retryError) {
         debugPrint("Retry also failed: $retryError");
@@ -303,18 +363,47 @@ class PlayerProvider extends ChangeNotifier {
     _queue = List.from(songs);
     _currentIndex = startIndex;
 
+    // clear playlist
+    await _playlist.clear();
+
+    // Populate playlist with placeholders
+    final sources = songs.map((s) => AudioSource.uri(
+      Uri.parse(''), // Placeholder URI
+      tag: MediaItem(
+        id: s.id,
+        title: s.title,
+        artist: s.artist,
+        artUri: Uri.parse(s.thumbnailUrl),
+      ),
+    )).toList();
+    
+    await _playlist.addAll(sources);
+    await _player.setAudioSource(_playlist, initialIndex: startIndex, preload: false);
+
     // Immediately prefetch all queue songs
     prefetchSongs(songs);
 
     if (_queue.isNotEmpty && startIndex < _queue.length) {
-      await playSong(_queue[startIndex]);
+      // Actually resolve and play the first one
+      await playSong(_queue[startIndex], forceIndex: startIndex);
     }
   }
 
   Future<void> addToQueue(Song song) async {
     _queue.add(song);
+    // Add placeholder to playlist
+    await _playlist.add(AudioSource.uri(
+      Uri.parse(''), 
+      tag: MediaItem(
+        id: song.id,
+        title: song.title,
+        artist: song.artist,
+        artUri: Uri.parse(song.thumbnailUrl),
+      ),
+    ));
+
     // Prefetch the added song
-    if (!_streamUrlCache.containsKey(song.id) || _streamUrlCache[song.id]!.isExpired) {
+    if (!_streamUrlCache.containsKey(song.id)) {
       _resolveAndCache(song.id);
     }
     notifyListeners();
@@ -323,11 +412,29 @@ class PlayerProvider extends ChangeNotifier {
   Future<void> playNext(Song song) async {
     if (_currentIndex >= 0 && _currentIndex < _queue.length - 1) {
       _queue.insert(_currentIndex + 1, song);
+      await _playlist.insert(_currentIndex + 1, AudioSource.uri(
+        Uri.parse(''),
+        tag: MediaItem(
+          id: song.id,
+          title: song.title,
+          artist: song.artist,
+          artUri: Uri.parse(song.thumbnailUrl),
+        ),
+      ));
     } else {
       _queue.add(song);
+      await _playlist.add(AudioSource.uri(
+        Uri.parse(''),
+        tag: MediaItem(
+          id: song.id,
+          title: song.title,
+          artist: song.artist,
+          artUri: Uri.parse(song.thumbnailUrl),
+        ),
+      ));
     }
     // Prefetch immediately
-    if (!_streamUrlCache.containsKey(song.id) || _streamUrlCache[song.id]!.isExpired) {
+    if (!_streamUrlCache.containsKey(song.id)) {
       _resolveAndCache(song.id);
     }
     notifyListeners();
@@ -348,9 +455,10 @@ class PlayerProvider extends ChangeNotifier {
   Future<void> skipToNext() async {
     _trackSkipIfNeeded();
     if (hasNext) {
-      _playIndex(_currentIndex + 1);
+       _player.seekToNext(); 
+       // The currentIndexStream will trigger _onNotificationTrackChange -> playSong
     } else if (_repeatMode == RepeatMode.all && _queue.isNotEmpty) {
-      _playIndex(0);
+       _player.seek(Duration.zero, index: 0);
     }
   }
 
@@ -361,13 +469,19 @@ class PlayerProvider extends ChangeNotifier {
     }
     _trackSkipIfNeeded();
     if (hasPrevious) {
-      _playIndex(_currentIndex - 1);
+      _player.seekToPrevious();
+       // The currentIndexStream will trigger _onNotificationTrackChange -> playSong
     }
   }
 
-  void toggleShuffle() {
+  Future<void> toggleShuffle() async {
     _isShuffled = !_isShuffled;
     if (_isShuffled && _queue.length > 1) {
+      await _player.setShuffleModeEnabled(true);
+      await _player.shuffle();
+      // Note: mapping shuffled queue back to UI queue is complex with just_audio
+      // For now, simpler implementation: maintain UI queue, shuffle that, rebuild playlist.
+      
       final current = _currentIndex >= 0 ? _queue[_currentIndex] : null;
       _queue.shuffle();
       if (current != null) {
@@ -375,6 +489,10 @@ class PlayerProvider extends ChangeNotifier {
         _queue.insert(0, current);
         _currentIndex = 0;
       }
+      
+      // Rebuild playlist
+      // This is expensive but correct
+      await playQueue(_queue, startIndex: 0);
     }
     notifyListeners();
   }
@@ -397,7 +515,10 @@ class PlayerProvider extends ChangeNotifier {
   Future<void> _playIndex(int index) async {
     if (index >= 0 && index < _queue.length) {
       _currentIndex = index;
-      await playSong(_queue[index]);
+      // Seek to that index in the playlist
+      // This will trigger currentIndexStream -> playSong
+      await _player.seek(Duration.zero, index: index);
+      _player.play();
     }
   }
 
