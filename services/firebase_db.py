@@ -295,6 +295,57 @@ class FirebaseMusicDatabase:
             logger.error(f"Error getting play history: {e}")
             return []
 
+    # ────────────────── LIKED SONGS ──────────────────
+
+    def track_like(self, user_id: str, song: Dict, liked: bool = True):
+        """Track liked/unliked songs in RTDB for recommendation quality."""
+        try:
+            song_id = song.get("id")
+            if not song_id:
+                return
+
+            ref = _ref(f"/liked_songs/{user_id}/{song_id}")
+            if liked:
+                ref.set({
+                    "id": song_id,
+                    "title": song.get("title", ""),
+                    "artist": song.get("artist", ""),
+                    "thumbnailUrl": song.get("thumbnailUrl", ""),
+                    "audioUrl": song.get("audioUrl", ""),
+                    "durationSeconds": song.get("durationSeconds", 0),
+                    "liked_at": datetime.utcnow().isoformat(),
+                })
+                self._log_activity(user_id, ActivityType.LIKE.value, {
+                    "song_id": song_id,
+                    "title": song.get("title", ""),
+                    "artist": song.get("artist", ""),
+                })
+            else:
+                ref.delete()
+                self._log_activity(user_id, ActivityType.DISLIKE.value, {
+                    "song_id": song_id,
+                    "title": song.get("title", ""),
+                    "artist": song.get("artist", ""),
+                })
+        except Exception as e:
+            logger.error(f"Error tracking like state: {e}")
+
+    def get_liked_songs(self, user_id: str, limit: int = 100) -> List[Dict]:
+        """Get recently liked songs for personalization."""
+        try:
+            liked = _ref(f"/liked_songs/{user_id}").order_by_child(
+                "liked_at"
+            ).limit_to_last(limit).get()
+            if not liked:
+                return []
+
+            result = list(liked.values())
+            result.sort(key=lambda x: x.get("liked_at", ""), reverse=True)
+            return result
+        except Exception as e:
+            logger.error(f"Error getting liked songs: {e}")
+            return []
+
     # ────────────────── KEYWORD WEIGHT MANAGEMENT ──────────────────
 
     def _update_user_keywords(self, user_id: str, keywords: List[str],
