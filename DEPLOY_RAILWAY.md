@@ -30,6 +30,6 @@ This project is configured for Railway with a root `Dockerfile` and `railway.jso
 
 ## Notes
 
-- `Dockerfile` runs `npm ci --omit=dev` and `npm start`.
+- `Dockerfile` runs `npm ci --omit=dev` and starts with `node server.js`.
 - `firebase-admin` must be installed in production (already included in `package.json`).
 - If `FIREBASE_SERVICE_ACCOUNT_JSON` is invalid or missing, app runs but Firebase RTDB features are disabled.
