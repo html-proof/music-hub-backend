@@ -12,14 +12,16 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 optional_security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> dict:
     """Require valid Firebase token. Raises 401 if invalid."""
+    if not credentials or not credentials.credentials:
+        raise HTTPException(status_code=401, detail="Missing authentication token")
     try:
         decoded = verify_firebase_token(credentials.credentials)
         return decoded

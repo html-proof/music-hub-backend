@@ -11,11 +11,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+async def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(security)) -> dict:
     """Dependency to get current authenticated user from Bearer token."""
+    if not credentials or not credentials.credentials:
+        raise HTTPException(status_code=401, detail="Missing authentication token")
     try:
         token = credentials.credentials
         decoded_token = verify_firebase_token(token)
@@ -43,7 +45,11 @@ async def google_login(request: GoogleSignInRequest):
             raise HTTPException(status_code=422, detail="firebase_token is required")
 
         # Verify Firebase token
-        decoded_token = verify_firebase_token(request.firebase_token)
+        try:
+            decoded_token = verify_firebase_token(request.firebase_token)
+        except Exception as e:
+            logger.warning(f"Invalid Firebase token during login: {e}")
+            raise HTTPException(status_code=401, detail="Invalid Firebase token")
 
         user_id = decoded_token["uid"]
         email = decoded_token.get("email", "")

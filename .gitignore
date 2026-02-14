@@ -42,3 +42,6 @@ htmlcov/
 
 # Frontend (Flutter) - Kept locally but not tracked
 music_hub/
+
+# Node.js
+node_modules/
