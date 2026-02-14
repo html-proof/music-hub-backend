@@ -3,6 +3,9 @@
   "version": "3.0.0",
   "private": true,
   "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node server.js"
   },
@@ -11,6 +14,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "firebase-admin": "^13.6.1",
     "lru-cache": "^11.2.6",
     "morgan": "^1.10.1",
     "ytmusic-api": "^5.3.1"

@@ -1,26 +1,19 @@
-FROM python:3.11-slim
+FROM node:20-slim
 
 WORKDIR /app
 
-# Install system dependencies for yt-dlp
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+# Install production dependencies
+COPY package*.json ./
+RUN npm ci --omit=dev
 
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
+# Copy source
 COPY . .
 
-# Expose port
-EXPOSE 8000
+# Railway injects PORT at runtime
+EXPOSE 8080
 
-# Health check
+# Basic health check against local HTTP endpoint
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD sh -c "python -c \"import os, urllib.request; urllib.request.urlopen('http://localhost:' + os.getenv('PORT', '8000') + '/health')\"" || exit 1
+  CMD sh -c "node -e \"const http=require('http');const p=process.env.PORT||8080;http.get('http://127.0.0.1:'+p+'/health',res=>process.exit(res.statusCode===200?0:1)).on('error',()=>process.exit(1));\""
 
-# Run the application
-# Run the application
-CMD sh -c "python -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"
+CMD ["npm", "start"]

@@ -430,3 +430,31 @@ app.post("/music/prefetch", asyncRoute(async (req, res) => {
   await Promise.allSettled(ids.map((id) => resolveStream(String(id), quality, false)));
   res.json({ success: true, message: `Prefetching ${ids.length} songs`, ids });
 }));
+
+app.use((_req, res) => {
+  res.status(404).json({ error: "Not found", status_code: 404 });
+});
+
+app.use((err, _req, res, _next) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({ error: "Internal server error", status_code: 500 });
+});
+
+async function bootstrap() {
+  app.listen(PORT, HOST, () => {
+    console.log(`Server listening at http://${HOST}:${PORT}`);
+  });
+
+  yt.initialize()
+    .then(() => {
+      console.log("YTMusic initialized");
+    })
+    .catch((err) => {
+      console.warn("YTMusic init failed:", err?.message || err);
+    });
+}
+
+bootstrap().catch((err) => {
+  console.error("Startup failed:", err);
+  process.exit(1);
+});
