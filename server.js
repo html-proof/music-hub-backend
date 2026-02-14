@@ -10,8 +10,8 @@ const ytdl = require("@distube/ytdl-core");
 dotenv.config();
 
 const app = express();
-const PORT = Number(process.env.PORT || 8000);
-const HOST = process.env.HOST || "0.0.0.0";
+const PORT = Number(process.env.PORT || 8080);
+const HOST = "0.0.0.0";
 const CORS_ORIGINS = process.env.CORS_ORIGINS || "*";
 const START_MS = Date.now();
 
@@ -442,7 +442,7 @@ app.use((err, _req, res, _next) => {
 
 async function bootstrap() {
   app.listen(PORT, HOST, () => {
-    console.log(`Server listening at http://${HOST}:${PORT}`);
+    console.log(`Server listening at http://${HOST}:${PORT} (PORT env: ${process.env.PORT || "unset"})`);
   });
 
   yt.initialize()
