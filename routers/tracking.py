@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List
 from routers.auth import get_current_user
+from middleware.auth import get_optional_user
 from services.firebase_db import music_db
 from services.smart_engine import smart_engine
 import logging
@@ -51,32 +52,46 @@ class ClickResultRequest(BaseModel):
 
 @router.post("/search")
 async def track_search(req: TrackSearchRequest,
-                       current_user: dict = Depends(get_current_user)):
+                       current_user: Optional[dict] = Depends(get_optional_user)):
     """Track a search query — extracts keywords and updates user weights."""
+    if not current_user:
+        return {"status": "anonymous_ignored"}
+
     uid = current_user["uid"]
     search_id = music_db.track_search(uid, req.search_query, req.results_count, req.clicked_result)
     if not search_id:
-        raise HTTPException(status_code=500, detail="Failed to track search")
+        # Don't fail the request if tracking fails, just log it
+        logger.warning(f"Failed to track search for {uid}")
+        return {"status": "error", "message": "Failed to track"}
+        
     return {"search_id": search_id, "status": "tracked"}
 
 
 @router.post("/play")
 async def track_play(req: TrackPlayRequest,
-                     current_user: dict = Depends(get_current_user)):
+                     current_user: Optional[dict] = Depends(get_optional_user)):
     """Track when user starts playing a song."""
+    if not current_user:
+        return {"status": "anonymous_playing"}
+
     uid = current_user["uid"]
     play_id = music_db.track_play(
         uid, req.video_id, req.title, req.artist, req.channel, req.duration,
     )
     if not play_id:
-        raise HTTPException(status_code=500, detail="Failed to track play")
+        logger.warning(f"Failed to track play for {uid}")
+        return {"status": "error"}
+        
     return {"play_id": play_id, "status": "playing"}
 
 
 @router.post("/skip")
 async def track_skip(req: TrackSkipRequest,
-                     current_user: dict = Depends(get_current_user)):
+                     current_user: Optional[dict] = Depends(get_optional_user)):
     """Track skip — penalizes keywords if skipped early (<20%)."""
+    if not current_user:
+        return {"status": "anonymous_skipped"}
+
     uid = current_user["uid"]
     music_db.track_skip(uid, req.play_id, req.play_duration)
     # Refresh recommendation cache in background
@@ -86,8 +101,11 @@ async def track_skip(req: TrackSkipRequest,
 
 @router.post("/complete")
 async def track_complete(req: TrackCompleteRequest,
-                         current_user: dict = Depends(get_current_user)):
+                         current_user: Optional[dict] = Depends(get_optional_user)):
     """Track completion — heavily boosts keyword weights."""
+    if not current_user:
+        return {"status": "anonymous_completed"}
+
     uid = current_user["uid"]
     music_db.track_complete(uid, req.play_id, req.play_duration)
     # Refresh recommendation cache in background
@@ -97,8 +115,11 @@ async def track_complete(req: TrackCompleteRequest,
 
 @router.post("/click")
 async def track_click(req: ClickResultRequest,
-                      current_user: dict = Depends(get_current_user)):
+                      current_user: Optional[dict] = Depends(get_optional_user)):
     """Track which search result was clicked."""
+    if not current_user:
+        return {"status": "anonymous_click"}
+
     uid = current_user["uid"]
     try:
         from firebase_admin import db as rtdb
@@ -108,7 +129,8 @@ async def track_click(req: ClickResultRequest,
         return {"status": "click_tracked"}
     except Exception as e:
         logger.error(f"Error tracking click: {e}")
-        raise HTTPException(status_code=500, detail="Failed to track click")
+        # Don't crash for analytics errors
+        return {"status": "error", "message": str(e)}
 
 
 # ==================== HISTORY ENDPOINTS ====================
